@@ -1,0 +1,48 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+
+# Python Sanal Ortamları
+backend/venv/
+venv/
+.venv/
+env/
+
+# Python Cache Dosyaları
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Çevre Değişkenleri (Hassas Veriler - Kesinlikle Git'e gitmemeli!)
+backend/.env
+.env
+.env.*
+!.env.example
+
+# IDE ve Editör Dosyaları
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# İşletim Sistemi Dosyaları
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Frontend Bağımlılıkları ve Build Çıktıları
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.next/
+out/
+
+# Kullanıcı Tarafından Yüklenen Medya/Faturalar
+backend/uploads/
+uploads/
+
+# Log Dosyaları
+*.log
