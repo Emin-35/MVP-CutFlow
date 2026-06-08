@@ -2,6 +2,8 @@
 -- METAL ORDER SYSTEM — Full Database Schema
 -- ============================================================
 
+CREATE SEQUENCE order_number_seq START WITH 1 CYCLE;
+
 -- ─────────────────────────────────────────
 -- ENUM TYPES
 -- ─────────────────────────────────────────

@@ -6,6 +6,8 @@ Kullanım:
     cd backend
     python seed.py
 """
+from sqlalchemy import text
+
 from app.db.base import SessionLocal, engine, Base
 
 # Tüm modellerin import edilmesi zorunlu — Base.metadata bunları tanısın
@@ -21,6 +23,11 @@ from app.models.models import UserRole
 def create_tables():
     print("Tablolar oluşturuluyor...")
     Base.metadata.create_all(bind=engine)
+
+    with engine.begin() as connection:
+        connection.execute(text("CREATE SEQUENCE IF NOT EXISTS order_number_seq START WITH 1 CYCLE;"))
+        print("Sequence oluşturuldu.\n")
+        
     print("[OK] Tüm tablolar oluşturuldu.\n")
 
 

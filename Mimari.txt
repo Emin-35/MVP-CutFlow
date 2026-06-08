@@ -3,11 +3,14 @@ Metal Kesim Projesi/
 │   ├── alembic/
 │   │   ├── versions/
 │   │   ├── env.py
+│   │   ├── README.md
 │   │   └── script.py.mako
 │   ├── app/
 │   │   ├── api/routes/
 │   │   │   ├── auth.py
+│   │   │   ├── history.py
 │   │   │   ├── notifications.py
+│   │   │   ├── orders_ocr_helper.py
 │   │   │   ├── orders.py
 │   │   │   └── users.py
 │   │   ├── core/
@@ -24,11 +27,13 @@ Metal Kesim Projesi/
 │   │   │   └── audit.py
 │   │   └── utils/
 │   │       └── order_number.py
+│   │   └── main.py
 │   ├── uploads/
 │   ├── venv/
 │   ├── .env
 │   ├── .gitignore
 │   ├── alembic.ini
+│   ├── deprecated.md
 │   ├── requirements.txt
 │   └── seed.py
 └── frontend/

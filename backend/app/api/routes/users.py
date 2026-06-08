@@ -1,7 +1,7 @@
 """
 Users Endpoints — kullanıcı yönetimi (sadece müdür erişebilir)
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Query, Session
 from typing import List, Optional
 
@@ -20,28 +20,87 @@ def list_users(
     current_user: User = Depends(require_manager),
 ):
     """Tüm kullanıcıları listele — sadece müdür"""
-    return db.query(User).order_by(User.created_at).all()
+    return db.query(User).filter(User.is_active == True).order_by(User.created_at).all()
 
 
+@router.get("/list-inactive-users", response_model=List[UserOut])
+def list_inactive_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager),
+):
+    """Tüm inaktif kullanıcıları listele — sadece müdür"""
+    return db.query(User).filter(User.is_active == False).order_by(User.created_at).all()
+
+
+# FRONTEND KISMINDA BU KULLANICI INAKTIF, AKTİF ETMEK ISTER MİSİNİZ DİYE SORMALI 
 
 @router.post("/create-user", response_model=UserOut, status_code=201)
 def create_user(
     payload: UserCreate,
     request: Request,
+    confirm_reactivate: bool = False,  # Frontend'den gelecek onay flag'i
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager),
 ):
-    """Yeni kullanıcı oluştur — sadece müdür"""
-    if db.query(User).filter(User.username == payload.username).first():
-        raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten kullanılıyor")
-    if db.query(User).filter(User.email == payload.email).first():
-        raise HTTPException(status_code=400, detail="Bu e-posta zaten kullanılıyor")
+    """Yeni kullanıcı oluştur veya inaktif kullanıcıyı onay ile canlandır"""
+    
+    # Tüm kullanıcılar içinde ara
+    existing_user_by_username = db.query(User).filter(User.username == payload.username).first()
+    existing_user_by_email = db.query(User).filter(User.email == payload.email).first()
 
+    target_user = existing_user_by_username or existing_user_by_email
+
+    if target_user:
+        # DURUM A: Kullanıcı zaten AKTİF ise -> Doğrudan Hata Dön
+        if target_user.is_active:
+            if existing_user_by_username:
+                raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten aktif olarak kullanılıyor.")
+            if existing_user_by_email:
+                raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten aktif olarak kullanılıyor.")
+        
+        # DURUM B: Kullanıcı var ve İNAKTİF (Soft Deleted)
+        if not target_user.is_active:
+            
+            # Eğer frontend henüz onay vermediyse (Müdüre pop-up göstermek için bilgileri dönüyoruz)
+            if not confirm_reactivate:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "reason": "user_inactive",
+                        "message": "Bu bilgilere sahip inaktif bir kullanıcı bulundu. Aynı kullanıcıyı tekrardan aktive etmek istiyor musunuz?",
+                        "user_details": {
+                            "id": target_user.id,
+                            "username": target_user.username,
+                            "email": target_user.email,
+                            "role": target_user.role
+                        }
+                    }
+                )
+            
+            # Eğer müdür pop-up'ta "Evet" dediyse (confirm_reactivate == True gelmiştir)
+            old_value = {"username": target_user.username, "role": target_user.role, "is_active": target_user.is_active}
+            
+            target_user.username = payload.username
+            target_user.email = payload.email
+            target_user.password_hash = hash_password(payload.password)
+            target_user.role = payload.role
+            target_user.is_active = True  # Canlandır
+            
+            db.flush()
+            log_action(db, AuditAction.user_updated, request, current_user.id,
+                       old_value=old_value,
+                       new_value={"username": target_user.username, "role": target_user.role, "is_active": True})
+            db.commit()
+            db.refresh(target_user)
+            return target_user
+
+    # DURUM C: Sistemde hiç yoksa sıfırdan oluştur
     user = User(
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
         role=payload.role,
+        is_active=True
     )
     db.add(user)
     db.flush()
@@ -50,19 +109,6 @@ def create_user(
     db.commit()
     db.refresh(user)
     return user
-
-
-
-@router.get("/{user_id}/specific-user-history", tags=["audit", "users"])
-def user_history(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_manager),
-):
-    return db.query(AuditLog).filter(
-        AuditLog.user_id == user_id
-    ).order_by(AuditLog.created_at.desc()).all()
-
 
 
 @router.get("/{user_id}/get-user", response_model=UserOut)
@@ -76,7 +122,6 @@ def get_user(
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
     return user
-
 
 
 @router.patch("/{user_id}/update-user", response_model=UserOut)
@@ -164,8 +209,6 @@ def update_user_role(
     return user
 
 
-
-
 @router.patch("/{user_id}/global-change-password")
 def global_change_password(
     user_id: int,
@@ -184,7 +227,6 @@ def global_change_password(
                new_value={"action": "password_changed_by_manager"})
     db.commit()
     return {"message": "Şifre güncellendi"}
-
 
 
 @router.delete("/{user_id}/delete-user")
@@ -213,7 +255,6 @@ def delete_user(
     
     db.commit()
     return {"message": f"{user.username} inaktif edildi"}
-
 
 
 @router.post("/{user_id}/activate-user")

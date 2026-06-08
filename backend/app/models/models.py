@@ -5,7 +5,7 @@ import enum
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum, ForeignKey,
-    Integer, Numeric, String, Text, JSON
+    Integer, Numeric, Sequence, String, Text, JSON
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func

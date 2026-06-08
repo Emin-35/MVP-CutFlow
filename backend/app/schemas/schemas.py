@@ -19,25 +19,22 @@ from app.models.models import (
 class UserBase(BaseModel):
     username: str
     email: EmailStr
-    role: UserRole
-
 
 class UserCreate(UserBase):
     password: str
+    role: UserRole
 
-
+# 3. Güncelleme Esnasında (Her şey isteğe bağlıdır)
 class UserUpdate(BaseModel):
-    username:  Optional[str]      = None
-    email:     Optional[EmailStr] = None
-    is_active: Optional[bool]     = None
-
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
 
 class UserRoleUpdate(BaseModel):
     role: UserRole
 
-
 class UserOut(UserBase):
     id:         int
+    role:       UserRole
     is_active:  bool
     created_at: datetime
 
@@ -107,7 +104,7 @@ class MetalRequestCreate(BaseModel):
     quantity:  int      = 1          # Plaka adedi
     kg:        Optional[Decimal] = None
     total:     Optional[Decimal] = None
-    notes:     Optional[str]    = None
+    notes:     Optional[str]    = Field(None, max_length=300)  # Notlar 300 karakterle sınırlı
 
 
 class MetalRequestOut(BaseModel):
@@ -120,7 +117,7 @@ class MetalRequestOut(BaseModel):
     quantity:   int
     kg:         Optional[Decimal]
     total:      Optional[Decimal]
-    notes:      Optional[str]
+    notes:      Optional[str] = Field(None, max_length=300)  # Notlar 300 karakterle sınırlı
     created_by: int
     created_at: datetime
 
@@ -322,8 +319,8 @@ class MismatchResolve(BaseModel):
     """Müdürün tutar uyuşmazlığını çözme isteği — ÜÇ seçenek:"""
     approve:      bool              # True → farkı kabul et, tamamla
     grant_edit:   bool = False      # True → muhasebeye düzenleme izni ver (approve=False ile birlikte)
-    manager_note: str               # Her durumda zorunlu açıklama
- 
+    manager_note: str = Field(..., max_length=300)  # Müdürün kararıyla ilgili notu — her iki durumda da zorunlu
+
     # approve=False ve grant_edit=False ise → iptal et
  
  
@@ -370,7 +367,7 @@ class StatusHistoryOut(BaseModel):
     old_status: Optional[OrderStatus]
     new_status: OrderStatus
     changed_by: int
-    note:       Optional[str]
+    note:       Optional[str] = Field(None, max_length=300)  # Notlar 300 karakterle sınırlı
     created_at: datetime
 
     class Config:
