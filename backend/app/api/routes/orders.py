@@ -290,7 +290,7 @@ def get_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).filter(Order.status != OrderStatus.deleted).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Sipariş bulunamadı.")
     return order
