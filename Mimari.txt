@@ -1,0 +1,34 @@
+Metal Kesim Projesi/
+├── backend/
+│   ├── alembic/
+│   │   ├── versions/
+│   │   ├── env.py
+│   │   └── script.py.mako
+│   ├── app/
+│   │   ├── api/routes/
+│   │   │   ├── auth.py
+│   │   │   ├── notifications.py
+│   │   │   ├── orders.py
+│   │   │   └── users.py
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   └── security.py
+│   │   ├── db/
+│   │   │   ├── base.py
+│   │   │   └── schema.sql
+│   │   ├── models/
+│   │   │   └── models.py
+│   │   ├── schemas/
+│   │   │   └── schemas.py
+│   │   ├── services/
+│   │   │   └── audit.py
+│   │   └── utils/
+│   │       └── order_number.py
+│   ├── uploads/
+│   ├── venv/
+│   ├── .env
+│   ├── .gitignore
+│   ├── alembic.ini
+│   ├── requirements.txt
+│   └── seed.py
+└── frontend/
