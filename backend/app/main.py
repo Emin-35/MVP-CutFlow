@@ -7,7 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import auth, history, order_ocr_helper, orders, notifications, users
+from app.api.routes import (
+    auth, history, order_ocr_helper, orders, notifications, users,
+    buyer, staff, production,
+)
 
 from app.utils.cleanup import start_cleanup_scheduler
 
@@ -38,9 +41,15 @@ app.add_middleware(
 # Router'lar
 PREFIX = settings.API_V1_PREFIX
 app.include_router(auth.router,          prefix=PREFIX)
+
 app.include_router(users.router,         prefix=PREFIX)
+app.include_router(buyer.router,      prefix=PREFIX)
+app.include_router(staff.router,      prefix=PREFIX)
+app.include_router(production.router, prefix=PREFIX)
+
 app.include_router(orders.router,        prefix=PREFIX)
 app.include_router(order_ocr_helper.router, prefix=PREFIX)
+
 app.include_router(history.router,       prefix=PREFIX)
 app.include_router(notifications.router, prefix=PREFIX)
 

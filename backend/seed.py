@@ -13,8 +13,8 @@ from app.db.base import SessionLocal, engine, Base
 # Tüm modellerin import edilmesi zorunlu — Base.metadata bunları tanısın
 from app.models.models import (
     User, Order, OrderFile, TempInvoiceFile,
-    Invoice, MetalRequest, Notification,
-    OrderStatusHistory, AuditLog
+    Invoice, MetalRequest, ExtraMetalRequest, ProductionEvent,
+    Notification, OrderStatusHistory, AuditLog
 )
 from app.core.security import hash_password
 from app.models.models import UserRole
@@ -42,10 +42,28 @@ def seed():
                 "role": UserRole.manager,
             },
             {
-                "username": "accountant",
-                "email": "accountant@abc.com",
+                "username": "accountant1",
+                "email": "accountant1@abc.com",
                 "password": "accountant123",
-                "role": UserRole.accounting,
+                "role": UserRole.accountant,
+            },
+            {
+                "username": "accountant2",
+                "email": "accountant2@abc.com",
+                "password": "accountant123",
+                "role": UserRole.accountant,
+            },
+            {
+                "username": "staff",
+                "email": "staff@abc.com",
+                "password": "staff123",
+                "role": UserRole.staff,
+            },
+            {
+                "username": "buyer",
+                "email": "buyer@abc.com",
+                "password": "buyer123",
+                "role": UserRole.buyer,
             },
         ]
 
