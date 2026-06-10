@@ -145,6 +145,12 @@ def update_user(
     # Çakışma kontrolü — sadece gerçekten değişen değerler için
     new_username = changed_fields.get("username")
     new_email = changed_fields.get("email")
+
+    if new_username == user.username and new_email == user.email:
+        raise HTTPException(status_code=400, detail="Kullanıcı bilgileri aynı olamaz")
+    
+    if not new_username or new_email:
+        raise HTTPException(status_code=400, detail="Lütfen bilgileri boş bırakmayın")
  
     if new_username and new_username != user.username:
         if db.query(User).filter(User.username == new_username).first():
@@ -220,8 +226,9 @@ def global_change_password(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
-
+    
     user.password_hash = hash_password(payload.new_password)
+
     log_action(db, AuditAction.user_updated, request, current_user.id,
                old_value={"user_id": user.id},
                new_value={"action": "password_changed_by_manager"})
