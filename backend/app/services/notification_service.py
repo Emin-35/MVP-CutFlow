@@ -56,6 +56,59 @@ def notify_user(
     return notif
 
 
+def notify_actor_and_managers(
+    db: Session,
+    *,
+    actor_id: int,
+    notif_type: NotifType,
+    actor_message: str,
+    manager_message: str,
+    order_id: Optional[int] = None,
+    commit: bool = False,
+) -> list[Notification]:
+    """
+    İKİ YÖNLÜ BİLDİRİM — her mutasyon endpoint'inde kullanılır:
+      1) Aktöre (işlemi yapan kullanıcı) bir ONAY bildirimi
+         (örn. "Siparişiniz oluşturuldu").
+      2) TÜM aktif manager(ler)e bir BİLGİLENDİRME bildirimi
+         (örn. "Ahmet '#1234 - X Projesi' siparişini oluşturdu").
+
+    Bildirim tipi aktör ve müdür için AYNIDIR; ikisini ayıran şey mesaj metni
+    ve alıcıdır. notif_type üzerinden kategori türetilir (order/user/settings).
+
+    ÜRÜN KARARI — MÜKERRER ÖNLEME YOK:
+      Manager kendisi işlem yaptığında hem aktör hem müdür satırı oluşur
+      (yani iki bildirim alır). Bu bilinçli bir tercihtir.
+
+    NOT: commit=False (varsayılan) — çağıran transaction'ı tek seferde commit
+         etmelidir; böylece bildirim ana işlemle atomik kalır.
+    """
+    created: list[Notification] = [
+        notify_user(
+            db,
+            recipient_id=actor_id,
+            notif_type=notif_type,
+            message=actor_message,
+            order_id=order_id,
+            commit=False,
+        )
+    ]
+    for manager in _active_users_with_role(db, UserRole.manager):
+        created.append(
+            notify_user(
+                db,
+                recipient_id=manager.id,
+                notif_type=notif_type,
+                message=manager_message,
+                order_id=order_id,
+                commit=False,
+            )
+        )
+    if commit:
+        db.commit()
+    return created
+
+
 def notify_role(
     db: Session,
     *,
