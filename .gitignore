@@ -18,6 +18,13 @@ backend/.env
 .env.*
 !.env.example
 
+# Servis kimlik bilgileri / sırlar (R2, Google Vision service-account vb.)
+secrets/
+backend/secrets/
+*-key.json
+google-vision*.json
+*.pem
+
 # IDE ve Editör Dosyaları
 .vscode/
 .idea/
