@@ -64,8 +64,10 @@ CREATE TYPE production_event_type AS ENUM (
     'cutting_stopped',
     'cutting_started_again',
     'cutting_done',
-    'ready_count_updated',
-    'order_completed'
+    'ready_count_updated'
+    -- NOT: 'order_completed' KALDIRILDI — sipariş tamamlama yalnızca final fatura
+    --      akışıyla yapılır. Mevcut DB'lerde eski değer kullanılmayan orphan olarak
+    --      kalır (PostgreSQL enum değeri güvenli şekilde DROP edilemez).
 );
 
 CREATE TYPE notif_type AS ENUM (
@@ -82,6 +84,7 @@ CREATE TYPE notif_type AS ENUM (
     'order_created',           -- Sipariş oluşturuldu
     'order_updated',           -- Sipariş üst bilgileri güncellendi
     'order_deleted',           -- Sipariş silindi (soft-delete)
+    'order_revision_requested',-- Buyer staff'tan düzenleme istedi
     'extra_metal_approved',    -- Ekstra metal onaylandı/satın alındı
     'extra_metal_rejected',    -- Ekstra metal reddedildi
 
@@ -134,7 +137,10 @@ CREATE TYPE audit_action AS ENUM (
     'user_updated',
     'user_role_changed',
     'user_deactivated',
-    'user_reactivated'
+    'user_reactivated',
+
+    -- Güvenlik
+    'unauthorized_file_access' -- Yetkisiz dosya erişim denemesi (IDOR koruması)
 );
 
 
@@ -175,6 +181,7 @@ CREATE TABLE orders (
     -- Durum
     status              order_status NOT NULL DEFAULT 'pending_approval',
     rejection_reason    TEXT,
+    buyer_note          TEXT,           -- Buyer'ın düzenleme isterken düştüğü not
 
     -- Üretim takibi
     -- NOT: metal_arrived, cutting_started, cutting_done production_events tablosuna taşındı.
@@ -306,7 +313,8 @@ CREATE TABLE extra_metal_requests (
     material        VARCHAR(100)  NOT NULL,
     quantity        INTEGER       NOT NULL DEFAULT 1,
     kg              NUMERIC(10,3),
-    estimated_cost  NUMERIC(12,2),
+    total            NUMERIC(12,2),          -- otomatik hesaplanan ağırlık/alan
+    estimated_amount NUMERIC(12,2),          -- alınan metalin elle girilen fiyatı
 
     reason          TEXT,                    -- staff'ın ekstra gerekiyor
     buyer_note      TEXT,                    -- Buyer'ın satın alma notu
@@ -403,6 +411,31 @@ CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
 CREATE INDEX idx_audit_action  ON audit_logs(action);
 
 
+-- ─────────────────────────────────────────
+-- FILES (merkezi dosya metadata — object storage / R2)
+-- ─────────────────────────────────────────
+-- Dosyanın kendisi storage'da (yerel disk veya R2) tutulur; burada metadata.
+-- storage_key: StorageBackend erişim anahtarı (uploads/<rol>/<yıl-ay>/<uuid>.<ext>)
+
+CREATE TABLE files (
+    file_id         UUID PRIMARY KEY,              -- uygulama uuid4 üretir
+    file_name       VARCHAR(255),                  -- sanitize edilmiş orijinal ad
+    storage_key     VARCHAR(512) UNIQUE NOT NULL,
+    content_type    VARCHAR(120),
+    file_size       BIGINT,                        -- byte
+    kind            VARCHAR(40),                   -- order_schema | invoice_final | extra ...
+    order_id        INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    uploaded_by     INTEGER REFERENCES users(id)  ON DELETE SET NULL,
+    uploaded_at     TIMESTAMPTZ DEFAULT now(),
+    deleted_at      TIMESTAMPTZ,                   -- soft-delete işareti (NULL = canlı)
+    retention_until TIMESTAMPTZ                    -- NULL = süresiz sakla
+);
+
+CREATE INDEX idx_files_order      ON files(order_id);
+CREATE INDEX idx_files_key        ON files(storage_key);
+CREATE INDEX idx_files_retention  ON files(retention_until);
+
+
 -- ============================================================
 -- MIGRATION — mevcut (kurulu) veritabanları için
 -- ============================================================
@@ -429,3 +462,39 @@ ALTER TYPE notif_type ADD VALUE IF NOT EXISTS 'settings_changed';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name  VARCHAR(100);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone      VARCHAR(30);
+
+-- Buyer revizyon notu + yeni bildirim/audit enum değerleri:
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS buyer_note TEXT;
+ALTER TYPE notif_type   ADD VALUE IF NOT EXISTS 'order_revision_requested';
+ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'unauthorized_file_access';
+
+-- Ekstra metal: estimated_cost → total (otomatik) + estimated_amount (elle girilen fiyat)
+ALTER TABLE extra_metal_requests ADD COLUMN IF NOT EXISTS total NUMERIC(12,2);
+ALTER TABLE extra_metal_requests ADD COLUMN IF NOT EXISTS estimated_amount NUMERIC(12,2);
+-- Eski estimated_cost değerlerini total'a taşı, sonra kolonu kaldır (yalnızca hâlâ varsa)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='extra_metal_requests' AND column_name='estimated_cost') THEN
+        UPDATE extra_metal_requests SET total = estimated_cost WHERE total IS NULL;
+        ALTER TABLE extra_metal_requests DROP COLUMN estimated_cost;
+    END IF;
+END $$;
+
+-- Merkezi dosya metadata tablosu (object storage / R2 altyapısı)
+CREATE TABLE IF NOT EXISTS files (
+    file_id         UUID PRIMARY KEY,
+    file_name       VARCHAR(255),
+    storage_key     VARCHAR(512) UNIQUE NOT NULL,
+    content_type    VARCHAR(120),
+    file_size       BIGINT,
+    kind            VARCHAR(40),
+    order_id        INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    uploaded_by     INTEGER REFERENCES users(id)  ON DELETE SET NULL,
+    uploaded_at     TIMESTAMPTZ DEFAULT now(),
+    deleted_at      TIMESTAMPTZ,
+    retention_until TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_files_order     ON files(order_id);
+CREATE INDEX IF NOT EXISTS idx_files_key       ON files(storage_key);
+CREATE INDEX IF NOT EXISTS idx_files_retention ON files(retention_until);

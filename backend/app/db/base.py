@@ -4,11 +4,11 @@ Database bağlantısı — SQLAlchemy sync engine
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from app.core.config import settings
+from app.core.config import config_settings
 
 engine = create_engine(
-    settings.DATABASE_URL,
-    echo=settings.DB_ECHO,
+    config_settings.DATABASE_URL,
+    echo=config_settings.DB_ECHO,
     pool_pre_ping=True,
 )
 
