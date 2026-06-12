@@ -6,23 +6,45 @@ Fatura ve OCR şemaları.
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import InvoiceType
 
 
 # ─────────────────────────────────────────
-# INVOICE — OCR UPLOAD
+# INVOICE — DOSYA YÜKLEME + TARAMA (iki ayrı adım)
 # ─────────────────────────────────────────
+# Akış:
+#   1) Her dosya TEK TEK upload-...-file endpoint'ine yüklenir → file_token döner
+#      (frontend 1-3 dosya için endpoint'i ayrı ayrı çağırır)
+#   2) Kullanıcı "Tara" butonuna basınca scan-files çağrılır → tüm dosyalar
+#      OCR'lanır, birleşik (merged) ön-doldurma verisi döner
+#   3) submit'e birincil token (invoice_token) + kalanlar (extra_file_tokens) gönderilir
 
-class InvoiceOCRUploadOut(BaseModel):
+class InvoiceFileUploadOut(BaseModel):
+    """Tek dosya yükleme yanıtı. file_token tarama ve submit'te kullanılır."""
+    file_token:    str
+    original_name: Optional[str] = None
+
+
+class InvoiceScanRequest(BaseModel):
+    """Yüklenmiş dosyaların token'ları — hepsi taranır, sonuçlar birleştirilir."""
+    file_tokens: List[str] = Field(..., min_length=1, max_length=10)
+
+
+class InvoiceFileScanResult(BaseModel):
+    file_token: str
+    ocr_result: Dict[str, Any]
+
+
+class InvoiceScanOut(BaseModel):
     """
-    POST /orders/upload-invoice-ocr yanıtı.
-    invoice_token create-order'a gönderilir.
-    ocr_result kullanıcıya gösterilir ve düzenlenebilir.
+    results: dosya başına ham OCR çıktısı
+    merged:  tüm dosyalardan birleştirilmiş ön-doldurma verisi
+             (frontend form sütunlarını bununla doldurur)
     """
-    invoice_token: str
-    ocr_result:    Dict[str, Any]
+    results: List[InvoiceFileScanResult]
+    merged:  Dict[str, Any]
 
 
 # ─────────────────────────────────────────
@@ -91,3 +113,4 @@ class FinalInvoiceSubmit(BaseModel):
     edited_data:   Dict[str, Any]
     final_amount:  Decimal
     force_complete: bool = False   # frontend "bu fatura ile devam et" derse True
+    extra_file_tokens: List[str] = []   # ek fotoğraflar → order_files'a eklenir

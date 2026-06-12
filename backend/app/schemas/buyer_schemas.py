@@ -32,7 +32,8 @@ class PurchasePageItemOut(BaseModel):
     material:       str
     quantity:       int
     kg:             Optional[Decimal]
-    estimated_cost: Optional[Decimal]
+    total:            Optional[Decimal]   # otomatik hesaplanan ağırlık/alan
+    estimated_amount: Optional[Decimal]   # elle girilen fiyat
     reason:         Optional[str]
     buyer_note:     Optional[str]
     status:         ExtraMetalStatus
@@ -56,7 +57,8 @@ class PurchasePageItemOut(BaseModel):
             material=request.material,
             quantity=request.quantity,
             kg=request.kg,
-            estimated_cost=request.estimated_cost,
+            total=request.total,
+            estimated_amount=request.estimated_amount,
             reason=request.reason,
             buyer_note=request.buyer_note,
             status=request.status,
@@ -69,8 +71,16 @@ class PurchasePageItemOut(BaseModel):
         )
 
 
-class BatchExtraMetalAction(BaseModel):
-    """Toplu onaylama / not güncelleme girdi modeli."""
-    request_ids: List[int] = Field(..., min_items=1, description="Toplu işlem yapılacak talep ID listesi")
-    action_type: ExtraMetalStatus = Field(..., description="'approved' veya 'purchased' değerlerini alır")
-    buyer_note:  Optional[str] = Field(None, max_length=500, description="Tüm seçimlere ortak eklenecek not")
+class ExtraMetalDecision(BaseModel):
+    """
+    Buyer'ın ekstra metal talep(ler)ini karara bağlaması. TEK ortak endpoint:
+    request_ids tek eleman da olabilir (tekil işlem), birden fazla da (toplu).
+
+    action_type:
+      approved  → pending_approval → approved  (tutar siparişin estimated_amount'ına EKLENİR)
+      rejected  → pending_approval → rejected
+      purchased → approved → purchased (arşiv; tutar zaten onayda eklendi, tekrar eklenmez)
+    """
+    request_ids: List[int] = Field(..., min_length=1, description="İşlem yapılacak talep ID listesi (1+)")
+    action_type: ExtraMetalStatus = Field(..., description="approved | rejected | purchased")
+    buyer_note:  Optional[str] = Field(None, max_length=500, description="Seçimlere eklenecek ortak not")

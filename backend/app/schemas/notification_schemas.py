@@ -52,6 +52,24 @@ class StatusHistoryOut(BaseModel):
         from_attributes = True
 
 
+class OrderTimelineEventOut(BaseModel):
+    """
+    Bir siparişin BİRLEŞİK zaman çizelgesi olayı.
+    Hem durum geçişlerini (status_history) hem de tüm aksiyonları (audit_logs:
+    üretim olayı, not, ekstra metal talep/onay, güncelleme vb.) tek listede,
+    kronolojik sırada sunar. Frontend sipariş detayında bunu gösterir.
+
+    source = "status"  → bir durum geçişi (event = yeni durum)
+    source = "audit"   → bir aksiyon (event = audit action; detail = new_value)
+    """
+    source:     str                       # "status" | "audit"
+    event:      str                       # durum değeri veya audit action değeri
+    actor_id:   Optional[int]   = None    # işlemi yapan kullanıcı
+    note:       Optional[str]   = None
+    detail:     Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
 # ─────────────────────────────────────────
 # AUDIT LOG
 # ─────────────────────────────────────────

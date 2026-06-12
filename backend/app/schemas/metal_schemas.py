@@ -9,7 +9,7 @@ NOT: ExtraMetalStatus enum'u eskiden bu dosyada (schemas.py içinde) ayrıca
 """
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import ExtraMetalStatus
@@ -72,9 +72,10 @@ class MetalRequestOut(BaseModel):
 class ExtraMetalRequestCreate(BaseModel):
     """
     Staff, aktif bir siparişe ekstra metal talebi açar.
-    Buyer bildirim alır ve onaylayabilir.
+    Buyer bildirim alır ve karara bağlar.
 
-    NOT: Burada hesaplanan değer modelde 'estimated_cost' kolonuna yazılır.
+      total            → ağırlık/alan formülüyle OTOMATİK hesaplanır (girilmez)
+      estimated_amount → alınan metalin ELLE girilen FİYATI (zorunlu)
     """
     width:     Decimal = Field(..., gt=0)
     length:    Decimal = Field(..., gt=0)
@@ -82,13 +83,15 @@ class ExtraMetalRequestCreate(BaseModel):
     material:  str
     quantity:  int            = Field(1, gt=0)
     kg:        Optional[Decimal] = None
-    estimated_cost:     Optional[Decimal] = None    # estimated_cost olarak kaydedilir
+    estimated_amount: Decimal = Field(..., gt=0, description="Alınan metalin fiyatı (elle girilir)")
+    total:     Optional[Decimal] = None   # validator otomatik hesaplar; girilse de ezilir
     reason:    Optional[str]     = Field(None, max_length=500)
 
     @model_validator(mode="after")
-    def calculate_and_verify_total(self):
+    def calculate_total(self):
+        # Frontend hesaplasa bile backend tekrar hesaplar ve ezer (ağırlık/alan)
         calculated = (self.width * self.length * self.thickness * self.quantity * 8) / 1000000
-        self.estimated_cost = Decimal(str(round(float(calculated), 2)))
+        self.total = Decimal(str(round(float(calculated), 2)))
         return self
 
 
@@ -101,7 +104,8 @@ class ExtraMetalRequestOut(BaseModel):
     material:    str
     quantity:    int
     kg:          Optional[Decimal]
-    estimated_cost: Optional[Decimal]   # modeldeki kolon adıyla hizalı
+    total:           Optional[Decimal]   # otomatik hesaplanan ağırlık/alan
+    estimated_amount: Optional[Decimal]  # elle girilen fiyat
     reason:      Optional[str]
     buyer_note:  Optional[str]
     status:      ExtraMetalStatus
@@ -118,3 +122,12 @@ class ExtraMetalApprove(BaseModel):
     """Buyer ekstra metal talebini onaylar veya reddeder."""
     approved: bool
     note:     Optional[str] = Field(None, max_length=300)
+
+
+class ExtraMetalBatchCreate(BaseModel):
+    """
+    Staff tek seferde birden fazla ekstra metal talebi açar
+    (örn. 2-3 farklı ölçü/tip aynı anda). Her kalem ayrı
+    ExtraMetalRequest satırı olur; bildirimler tek mesajda özetlenir.
+    """
+    items: List[ExtraMetalRequestCreate] = Field(..., min_length=1)

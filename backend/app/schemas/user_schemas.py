@@ -10,6 +10,7 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
 
 from app.models.enums import UserRole
+from app.schemas.validators import validate_person_name
 
 
 # ─────────────────────────────────────────
@@ -72,6 +73,11 @@ class UserCreate(UserBase):
     def _check_phone(cls, v: Optional[str]) -> Optional[str]:
         return normalize_tr_phone(v)
 
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _check_name(cls, v: Optional[str]) -> Optional[str]:
+        return validate_person_name(v, field_label="Ad/Soyad")
+
 
 class UserUpdate(BaseModel):
     """Kullanıcı bilgilerini günceller (kısmi — yalnızca gönderilen alanlar)."""
@@ -85,6 +91,11 @@ class UserUpdate(BaseModel):
     @classmethod
     def _check_phone(cls, v: Optional[str]) -> Optional[str]:
         return normalize_tr_phone(v)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _check_name(cls, v: Optional[str]) -> Optional[str]:
+        return validate_person_name(v, field_label="Ad/Soyad")
 
 
 class UserRoleUpdate(BaseModel):
