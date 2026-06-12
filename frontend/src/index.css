@@ -1,0 +1,33 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Sipariş tablosu: durum bazlı sol kenar rengi (tag renkleriyle aynı şema)
+   Onay Bekleyen gri · Aktif yeşil · Tamamlanan mavi · İptal kırmızı · Durdurulan turuncu */
+.status-row > td:first-child {
+  border-left: 4px solid transparent;
+}
+.status-row-pending_approval > td:first-child {
+  border-left-color: #bfbfbf;
+}
+.status-row-active > td:first-child {
+  border-left-color: #52c41a;
+}
+.status-row-completed > td:first-child {
+  border-left-color: #1677ff;
+}
+.status-row-cancelled > td:first-child {
+  border-left-color: #ff4d4f;
+}
+.status-row-on_hold > td:first-child {
+  border-left-color: #fa8c16;
+}
+.status-row-deleted > td:first-child {
+  border-left-color: #eb2f96;
+}
