@@ -36,33 +36,33 @@ def seed():
     try:
         users_to_create = [
             {
-                "username": "manager",
+                "username": "m",
                 "email": "manager@abc.com",
-                "password": "manager123",
+                "password": "m",
                 "role": UserRole.manager,
             },
             {
-                "username": "accountant1",
+                "username": "acc1",
                 "email": "accountant1@abc.com",
-                "password": "accountant123",
+                "password": "acc",
                 "role": UserRole.accountant,
             },
             {
-                "username": "accountant2",
+                "username": "acc2",
                 "email": "accountant2@abc.com",
-                "password": "accountant123",
+                "password": "acc",
                 "role": UserRole.accountant,
             },
             {
-                "username": "staff",
+                "username": "s",
                 "email": "staff@abc.com",
-                "password": "staff123",
+                "password": "s",
                 "role": UserRole.staff,
             },
             {
-                "username": "buyer",
+                "username": "b",
                 "email": "buyer@abc.com",
-                "password": "buyer123",
+                "password": "b",
                 "role": UserRole.buyer,
             },
         ]
