@@ -6,10 +6,11 @@ from sqlalchemy.orm import Query, Session
 from typing import List, Optional
 
 from app.db.base import get_db
-from app.models.models import AuditLog, User, AuditAction
+from app.models.models import AuditLog, User, AuditAction, NotifType
 from app.schemas.schemas import UserCreate, UserUpdate, UserOut, ChangePasswordRequest, UserRoleUpdate
 from app.core.security import require_manager, get_current_user, hash_password
 from app.services.audit import log_action
+from app.services.notification_service import notify_actor_and_managers
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -84,12 +85,22 @@ def create_user(
             target_user.email = payload.email
             target_user.password_hash = hash_password(payload.password)
             target_user.role = payload.role
+            target_user.first_name = payload.first_name
+            target_user.last_name = payload.last_name
+            target_user.phone = payload.phone
             target_user.is_active = True  # Canlandır
             
             db.flush()
             log_action(db, AuditAction.user_updated, request, current_user.id,
                        old_value=old_value,
                        new_value={"username": target_user.username, "role": target_user.role, "is_active": True})
+            notify_actor_and_managers(
+                db,
+                actor_id=current_user.id,
+                notif_type=NotifType.user_reactivated,
+                actor_message=f'"{target_user.username}" kullanıcısını yeniden aktive ettiniz.',
+                manager_message=f'{current_user.username}, "{target_user.username}" kullanıcısını yeniden aktive etti.',
+            )
             db.commit()
             db.refresh(target_user)
             return target_user
@@ -100,12 +111,22 @@ def create_user(
         email=payload.email,
         password_hash=hash_password(payload.password),
         role=payload.role,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        phone=payload.phone,
         is_active=True
     )
     db.add(user)
     db.flush()
     log_action(db, AuditAction.user_created, request, current_user.id,
                new_value={"username": user.username, "role": user.role})
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.user_created,
+        actor_message=f'"{user.username}" ({user.role}) kullanıcısını oluşturdunuz.',
+        manager_message=f'{current_user.username}, "{user.username}" ({user.role}) kullanıcısını oluşturdu.',
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -142,16 +163,11 @@ def update_user(
     if not changed_fields:
         raise HTTPException(status_code=400, detail="Güncellenecek alan belirtilmedi")
  
-    # Çakışma kontrolü — sadece gerçekten değişen değerler için
+    # Çakışma kontrolü — sadece gerçekten değişen değerler için.
+    # NOT: Kısmi güncelleme desteklenir; örn. yalnızca telefon/isim gönderilebilir.
     new_username = changed_fields.get("username")
     new_email = changed_fields.get("email")
 
-    if new_username == user.username and new_email == user.email:
-        raise HTTPException(status_code=400, detail="Kullanıcı bilgileri aynı olamaz")
-    
-    if not new_username or new_email:
-        raise HTTPException(status_code=400, detail="Lütfen bilgileri boş bırakmayın")
- 
     if new_username and new_username != user.username:
         if db.query(User).filter(User.username == new_username).first():
             raise HTTPException(status_code=400, detail="Bu kullanıcı adı zaten kullanılıyor")
@@ -168,7 +184,15 @@ def update_user(
  
     log_action(db, AuditAction.user_updated, request, current_user.id,
                old_value=old_values, new_value=changed_fields)
- 
+
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.user_updated,
+        actor_message=f'"{user.username}" kullanıcısının bilgilerini güncellediniz.',
+        manager_message=f'{current_user.username}, "{user.username}" kullanıcısının bilgilerini güncelledi.',
+    )
+
     db.commit()
     db.refresh(user)
     return user
@@ -209,7 +233,15 @@ def update_user_role(
         old_value={"username": user.username, "previous_role": old_role["role"]},
         new_value={"username": user.username, "updated_role": new_role["role"]}
     )
-    
+
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.user_role_changed,
+        actor_message=f'"{user.username}" kullanıcısının rolünü "{new_role["role"]}" olarak değiştirdiniz.',
+        manager_message=f'{current_user.username}, "{user.username}" kullanıcısının rolünü "{old_role["role"]}" → "{new_role["role"]}" olarak değiştirdi.',
+    )
+
     db.commit()
     db.refresh(user)  # Güncel veriyi veritabanından çek
     return user
@@ -232,6 +264,14 @@ def global_change_password(
     log_action(db, AuditAction.user_updated, request, current_user.id,
                old_value={"user_id": user.id},
                new_value={"action": "password_changed_by_manager"})
+
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.password_changed,
+        actor_message=f'"{user.username}" kullanıcısının şifresini sıfırladınız.',
+        manager_message=f'{current_user.username}, "{user.username}" kullanıcısının şifresini sıfırladı.',
+    )
     db.commit()
     return {"message": "Şifre güncellendi"}
 
@@ -259,7 +299,15 @@ def delete_user(
     
     log_action(db, AuditAction.user_deactivated, request, current_user.id,
                old_value={"username": user.username}, new_value={"is_active": False})
-    
+
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.user_deactivated,
+        actor_message=f'"{user.username}" kullanıcısını inaktif ettiniz.',
+        manager_message=f'{current_user.username}, "{user.username}" kullanıcısını inaktif etti.',
+    )
+
     db.commit()
     return {"message": f"{user.username} inaktif edildi"}
 
@@ -284,6 +332,14 @@ def activate_user(
     
     log_action(db, AuditAction.user_reactivated, request, current_user.id,
                old_value={"username": user.username}, new_value={"is_active": True})
-    
+
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.user_reactivated,
+        actor_message=f'"{user.username}" kullanıcısını aktif ettiniz.',
+        manager_message=f'{current_user.username}, "{user.username}" kullanıcısını aktif etti.',
+    )
+
     db.commit()
     return {"message": f"{user.username} aktif edildi"}

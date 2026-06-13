@@ -9,7 +9,7 @@ Değişiklik özeti:
   - update-order yetkisi: manager (üretim alanlarını accountant production.py'den günceller)
   - list-orders, get-order, delete-order korundu
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -17,13 +17,15 @@ from sqlalchemy.orm import Session
 
 from app.db.base import get_db
 from app.models.models import (
-    Order, OrderStatus, OrderStatusHistory, User, AuditAction,
+    Order, OrderStatus, OrderStatusHistory, ProductionEvent, ProductionEventType,
+    User, AuditAction, NotifType,
 )
 from app.schemas.schemas import (
     OrderUpdate, OrderStatusOut, PaginatedOrders,
 )
 from app.core.security import get_current_user, require_manager
 from app.services.audit import log_action, _serialize
+from app.services.notification_service import notify_actor_and_managers
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -35,7 +37,13 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.get("/list-orders", response_model=PaginatedOrders)
 def list_orders(
     status: Optional[OrderStatus] = Query(None),
-    search: Optional[str] = Query(None, description="Sipariş adı veya müşteri adı arama"),
+    search: Optional[str] = Query(None, description="Sipariş no, sipariş adı veya müşteri adı arama"),
+    date_from: Optional[date] = Query(None, description="Bu tarihten itibaren (created_at, dahil)"),
+    date_to: Optional[date] = Query(None, description="Bu tarihe kadar (created_at, dahil)"),
+    production_done: Optional[bool] = Query(
+        None, description="true → yalnızca üretim döngüsü bitmiş (cutting_done) siparişler; "
+                          "false → yalnızca bitmemişler. Final fatura ekranı kullanır."
+    ),
     sort_by: Optional[str] = Query("created_at"),
     sort_dir: Optional[str] = Query("desc"),
     page: int = Query(1, ge=1),
@@ -50,9 +58,28 @@ def list_orders(
 
     if search:
         query = query.filter(
+            Order.order_number.ilike(f"%{search}%") |
             Order.order_title.ilike(f"%{search}%") |
             Order.customer_name.ilike(f"%{search}%")
         )
+
+    # Tarih aralığı: gün başı/günün sonu UTC'ye sabitlenir; tek uç da verilebilir
+    if date_from:
+        query = query.filter(Order.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
+    if date_to:
+        query = query.filter(Order.created_at <= datetime.combine(date_to, time.max, tzinfo=timezone.utc))
+
+    # Üretim döngüsü durumu (cutting_done olayı var mı?)
+    if production_done is not None:
+        done_exists = (
+            db.query(ProductionEvent.id)
+            .filter(
+                ProductionEvent.order_id == Order.id,
+                ProductionEvent.event_type == ProductionEventType.cutting_done,
+            )
+            .exists()
+        )
+        query = query.filter(done_exists if production_done else ~done_exists)
 
     sort_col = {
         "created_at":       Order.created_at,
@@ -121,6 +148,19 @@ def update_order(
     log_action(db, AuditAction.order_updated, request, current_user.id, order.id,
                old_value=old_values,
                new_value=_serialize(changed_fields))
+
+    # Güncellenen alanlar + varsa girilen üretim notu mesaja eklenir
+    fields_label = ", ".join(changed_fields.keys())
+    note_suffix = f" — Not: {changed_fields['note']}" if changed_fields.get("note") else ""
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.order_updated,
+        actor_message=f'"{order.order_title}" ({order.order_number}) siparişini güncellediniz. Değişen: {fields_label}.{note_suffix}',
+        manager_message=f'{current_user.username}, "{order.order_title}" ({order.order_number}) siparişini güncelledi. Değişen: {fields_label}.{note_suffix}',
+        order_id=order.id,
+    )
+
     db.commit()
     db.refresh(order)
     return order
@@ -153,6 +193,15 @@ def delete_order(
     log_action(db, AuditAction.order_deleted, request, current_user.id, order.id,
                old_value={"order_number": order.order_number, "status": _serialize(old_status)},
                new_value={"status": _serialize(OrderStatus.deleted)})
+
+    notify_actor_and_managers(
+        db,
+        actor_id=current_user.id,
+        notif_type=NotifType.order_deleted,
+        actor_message=f'"{order.order_title}" ({order.order_number}) siparişini sildiniz.',
+        manager_message=f'{current_user.username}, "{order.order_title}" ({order.order_number}) siparişini sildi.',
+        order_id=order.id,
+    )
 
     db.commit()
 
