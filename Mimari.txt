@@ -1,39 +1,150 @@
-Metal Kesim Projesi/
-├── backend/
-│   ├── alembic/
-│   │   ├── versions/
-│   │   ├── env.py
-│   │   ├── README.md
-│   │   └── script.py.mako
-│   ├── app/
-│   │   ├── api/routes/
-│   │   │   ├── auth.py
-│   │   │   ├── history.py
-│   │   │   ├── notifications.py
-│   │   │   ├── orders_ocr_helper.py
-│   │   │   ├── orders.py
-│   │   │   └── users.py
-│   │   ├── core/
-│   │   │   ├── config.py
-│   │   │   └── security.py
-│   │   ├── db/
-│   │   │   ├── base.py
-│   │   │   └── schema.sql
-│   │   ├── models/
-│   │   │   └── models.py
-│   │   ├── schemas/
-│   │   │   └── schemas.py
-│   │   ├── services/
-│   │   │   └── audit.py
-│   │   └── utils/
-│   │       └── order_number.py
-│   │   └── main.py
-│   ├── uploads/
-│   ├── venv/
-│   ├── .env
-│   ├── .gitignore
-│   ├── alembic.ini
-│   ├── deprecated.md
-│   ├── requirements.txt
-│   └── seed.py
-└── frontend/
+Metal Kesim Projesi/  —  Sipariş & üretim takip sistemi (FastAPI + React)
+Güncelleme: 2026-06-13
+
+================================================================================
+GENEL
+================================================================================
+İki bağımsız uygulama yan yana: backend (Python/FastAPI) ve frontend (React/Vite).
+Ayrı deploy edilir (backend: Railway/Render, frontend: Vercel). Detay → backend/SETUP_SERVICES.md
+
+Roller:  manager (müdür) · accountant (muhasebe) · staff (personel) · buyer (satın alma)
+Sipariş akışı:
+  staff sipariş oluşturur (pending_approval)
+    → buyer satın alır (active) / düzenleme ister / reddeder (hard delete)
+    → accountant üretimi yönetir (metal geldi → kesim → durdu/devam → tamamlandı)
+    → accountant final fatura yükler → completed
+  on_hold ("Durduruldu") = kesim durdurulduğunda otomatik; yeniden başlayınca active'e döner.
+
+================================================================================
+backend/
+================================================================================
+├── app/
+│   ├── api/routes/                 # HTTP endpoint'leri (router'lar)
+│   │   ├── auth.py                 # login (token), profil/şifre değiştirme
+│   │   ├── users.py                # kullanıcı yönetimi (yalnızca manager)
+│   │   ├── orders.py               # liste/detay/güncelle/sil; tarih+durum+production_done filtreleri
+│   │   ├── order_ocr_helper.py     # dosya yükle → OCR tara → sipariş oluştur + final fatura akışı
+│   │   ├── staff.py                # ekstra metal talebi + sipariş içeriği düzenleme (revizyon)
+│   │   ├── buyer.py                # satın al/reddet/düzenleme iste + Satın Alınacaklar + ekstra metal kararı
+│   │   ├── production.py           # üretim olayları (durum makinesi: metal/kesim/hedef/hazır adet)
+│   │   ├── files.py                # JWT korumalı dosya servisi (şema + final fatura)
+│   │   ├── notifications.py        # bildirim listele + okundu işaretle
+│   │   └── history.py              # audit & sipariş geçmişi (manager)
+│   ├── core/
+│   │   ├── config.py               # .env ayarları (DB, SECRET, dosya limiti, servis anahtarları)
+│   │   ├── security.py             # JWT, parola hash, rol bağımlılıkları (require_*)
+│   │   └── rate_limit.py           # slowapi limit'leri (login, dosya yükleme)
+│   ├── db/
+│   │   ├── base.py                 # SQLAlchemy engine/session
+│   │   └── schema.sql              # Postgres şeması (tek doğruluk kaynağı, elle kurulum)
+│   ├── models/                     # SQLAlchemy ORM (tablolar)
+│   │   ├── enums.py                # UserRole, OrderStatus, ProductionEventType, NotifType, AuditAction...
+│   │   ├── user_models.py          # User
+│   │   ├── order_models.py         # Order, OrderFile, MetalRequest
+│   │   ├── production_models.py    # ProductionEvent, ExtraMetalRequest
+│   │   ├── invoice_models.py       # Invoice, TempInvoiceFile (OCR token'ları)
+│   │   ├── file_models.py          # FileAsset (merkezi dosya metadata + retention)
+│   │   ├── log_models.py           # AuditLog, OrderStatusHistory, Notification
+│   │   └── models.py               # toplu re-export (geriye dönük import kolaylığı)
+│   ├── schemas/                    # Pydantic istek/yanıt şemaları
+│   │   ├── common.py               # Token, PaginatedOrders...
+│   │   ├── user_schemas.py         # UserCreate/Out/Update, şifre, telefon/isim doğrulama
+│   │   ├── order_schemas.py        # OrderCreate, OrderStatusOut (türetilen toplamlar), OrderContentUpdate
+│   │   ├── metal_schemas.py        # MetalRequestCreate, ExtraMetalRequestCreate (otomatik/elle ağırlık)
+│   │   ├── invoice_schemas.py      # InvoiceScan/Out, FinalInvoiceSubmit, InvoiceCompareOut (409)
+│   │   ├── production_schemas.py   # ProductionEventCreate/Out (olay bazlı zorunlu alanlar)
+│   │   ├── buyer_schemas.py        # PurchasePageItemOut, ExtraMetalDecision
+│   │   ├── notification_schemas.py # NotificationOut (kategori türetilir)
+│   │   ├── validators.py           # ortak doğrulayıcılar (telefon, isim)
+│   │   └── schemas.py              # toplu re-export
+│   ├── services/                   # iş mantığı (endpoint'lerden ayrı)
+│   │   ├── audit.py                # log_action, IP çözümleme, serileştirme
+│   │   ├── notification_service.py # aktör+müdür modeli, rol bazlı bildirimler
+│   │   ├── storage_backend.py      # provider-bağımsız depolama (local disk / Cloudflare R2)
+│   │   ├── file_service.py         # dosya kaydı/silme yardımcıları
+│   │   ├── ocr_service.py          # OCR sağlayıcı (mock / Google Vision)
+│   │   └── turnstile.py            # Cloudflare Turnstile bot doğrulama (aç/kapa)
+│   ├── utils/
+│   │   ├── order_number.py         # sıralı sipariş numarası üretimi
+│   │   ├── storage.py              # güvenli dosya yolu/uzantı + tip doğrulama
+│   │   └── cleanup.py              # süresi geçen geçici dosya/retention temizliği
+│   ├── API_REFERENCE.md            # TÜM endpoint'lerin güncel referansı (v4+)
+│   └── main.py                     # FastAPI app, router montajı, CORS, rate limit
+├── alembic/                        # (mevcut; aktif migration için schema.sql + scripts/ kullanılıyor)
+├── scripts/
+│   ├── migrate_production_v2.py    # üretim v2 DB migration'ı (target_count, metal referansları)
+│   └── test_vision_ocr.py          # Vision OCR manuel test
+├── secrets/                        # Google Vision JSON (git'e GİTMEZ)
+├── uploads/                        # yerel dosya deposu (STORAGE_BACKEND=local iken)
+├── venv/
+├── .env  /  .env.example           # ortam değişkenleri (gerçek .env git'e girmez)
+├── requirements.txt
+├── seed.py                         # başlangıç kullanıcı/veri
+├── SETUP_SERVICES.md               # harici servis kurulum rehberi (Neon, R2, Vision, Turnstile, deploy)
+└── deprecated.md                   # kaldırılan eski yapı notları
+
+================================================================================
+frontend/   —   Vite + React 19 + TypeScript + Ant Design v6
+================================================================================
+├── src/
+│   ├── api/                        # backend ile konuşan katman (axios)
+│   │   ├── client.ts               # axios instance, JWT interceptor (sessionStorage), 401→login, hata çözümü
+│   │   ├── types.ts                # backend şemalarının TS aynası + Türkçe etiket/renk haritaları
+│   │   ├── auth.ts                 # login, profil, şifre
+│   │   ├── orders.ts               # liste/detay
+│   │   ├── orderOcr.ts             # dosya yükle/tara, sipariş oluştur, final fatura (409 yakalama)
+│   │   ├── staff.ts                # içerik düzenleme + ekstra metal talebi
+│   │   ├── buyer.ts                # satın al/reddet/düzenleme iste + ekstra metal kararı
+│   │   ├── production.ts           # üretim olayı ekle
+│   │   ├── files.ts                # JWT'li dosyayı blob olarak aç/indir
+│   │   └── notifications.ts        # bildirim listele/okundu
+│   ├── auth/
+│   │   ├── AuthContext.tsx         # oturum state'i (token + kullanıcı), refreshUser
+│   │   └── RequireAuth.tsx         # korumalı rota sarmalayıcı
+│   ├── layouts/
+│   │   └── AppLayout.tsx           # rol bazlı sol menü + bildirim zili + profil/çıkış (alt+sağ üst)
+│   ├── components/
+│   │   └── MetalItemsEditor.tsx    # ortak metal kalem editörü (preset, otomatik/elle kg, fiyat modu)
+│   ├── pages/
+│   │   ├── LoginPage.tsx
+│   │   ├── OrdersPage.tsx          # liste: durum/tarih/arama filtresi, sıralama, durum renk şeridi
+│   │   ├── OrderDetailPage.tsx     # detay: kalemler, ekstra metal, üretim, dosyalar, buyer aksiyonları
+│   │   ├── NewOrderPage.tsx        # yeni sipariş: dosya→tara→form→kalemler (üretim hedefi opsiyonel)
+│   │   ├── EditOrderPage.tsx       # buyer revizyon isteği üzerine içerik düzenleme
+│   │   ├── PurchaseListPage.tsx    # buyer: Satın Alınacaklar (tekil/toplu ekstra metal kararı)
+│   │   ├── FinalInvoicePage.tsx    # accountant: üretimi biten siparişe final fatura + 409 uyuşmazlık ekranı
+│   │   ├── NotificationsPage.tsx   # okunmuş/okunmamış filtresi, tıklayınca ilgili yere git
+│   │   ├── ProfilePage.tsx         # hesap bilgileri + şifre değiştirme
+│   │   └── ComingSoonPage.tsx      # henüz yapılmamış ekranlar için yer tutucu (users, history)
+│   ├── utils/
+│   │   ├── format.ts               # para/tarih biçimleme (tr-TR)
+│   │   └── notifications.ts        # bildirim → hedef sayfa eşlemesi
+│   ├── App.tsx                     # rotalar
+│   ├── main.tsx                    # giriş noktası (ConfigProvider locale=tr, AntApp)
+│   └── index.css                   # global + sipariş satırı durum renk şeritleri
+├── public/                         # favicon, ikonlar
+├── index.html
+├── package.json
+├── vite.config.ts
+├── tsconfig*.json
+└── eslint.config.js
+
+================================================================================
+DURUM (neyin hazır olduğu)
+================================================================================
+HAZIR (uçtan uca çalışıyor):
+  - Giriş, rol bazlı menü, profil/şifre
+  - Sipariş oluşturma (OCR mock) → satın alma/red/düzenleme döngüsü
+  - Ekstra metal talebi + Satın Alınacaklar kararı
+  - Üretim olayları (durum makinesi, hedef/hazır adet, metal bazlı geliş, durdu/devam)
+  - Final fatura + tutar uyuşmazlık ekranı → tamamlama
+  - JWT korumalı dosya görüntüleme/indirme
+  - Bildirimler
+
+KOD HAZIR, ANAHTAR BEKLİYOR (bkz. SETUP_SERVICES.md):
+  - Cloudflare R2 (depolama), Google Vision (gerçek OCR), Turnstile (bot doğrulama)
+
+HENÜZ YOK:
+  - Kullanıcı yönetimi ve Geçmiş/Audit ekranları (frontend — şimdilik "yakında")
+  - Üretim/retention için zamanlanmış görev (cleanup fonksiyonu var, tetikleyici yok)
+  - Deploy + domain + CORS prod ayarı
